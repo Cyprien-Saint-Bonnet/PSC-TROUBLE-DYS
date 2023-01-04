@@ -1,17 +1,16 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-
-
+using Newtonsoft.Json;// Pour le JSON "complexe"
 
 public class DrawTemplate : MonoBehaviour
 {
-    private LineRenderer baseLine;
+    private GameObject[] clones;//Necessaires pour créer plusieurs lignes
 
     // Start is called before the first frame update
     void Start()
     {
-        baseLine = GetComponent<LineRenderer>();
+        clones = new GameObject[0];
     }
 
     // Update is called once per frame
@@ -24,12 +23,12 @@ public class DrawTemplate : MonoBehaviour
     {
         // On récupère les données du fichier JSON correspondant au shapeName
         var textFile = Resources.Load<TextAsset>("Shapes/" + shapeName);
-        Shape data = new();
+        Shape shape = new();
         if (textFile != null)
         {
             string jsonString = textFile.text;
-            data = JsonUtility.FromJson<Shape>(jsonString);
-            DrawBaseShape(data.points);
+            shape = JsonConvert.DeserializeObject<Shape>(jsonString);
+            DrawBaseShape(shape.points, shape.isLoop);
         }
         else
         {
@@ -38,10 +37,28 @@ public class DrawTemplate : MonoBehaviour
 
     }
 
-    public void DrawBaseShape(float[] shapePoints)
+    public void DrawBaseShape(float[][] shapePointsArrays, bool[] isLoop)
     {
-        Rect rect = GetComponent<RectTransform>().rect;
-        int nPoints = shapePoints.Length / 2;
+        foreach (GameObject clone in clones)
+        {
+            Object.Destroy(clone);
+        }
+
+        // Nouveaux clones
+        clones = new GameObject[shapePointsArrays.Length];
+        int totalBasePoints = 0; // Nombre de points de la figure au total
+        for (int i = 0; i < shapePointsArrays.Length; i++)
+        {
+            clones[i] = Instantiate(Resources.Load("templateLine") as GameObject, gameObject.transform.position, Quaternion.identity, gameObject.transform);
+            if (isLoop[i]) // Le path doit être dessiné comme une boucle
+            {
+                clones[i].GetComponent<LineRenderer>().loop = true;
+            }
+            float[] pathPoints = shapePointsArrays[i];
+            totalBasePoints += pathPoints.Length / 2;// Attention à ne pas compter les deux coordonnées (x et y), d'ou le /2
+        }
+
+        Rect rect = GetComponent<RectTransform>().rect; // En WorldGUI
 
         float xmin = rect.min.x;
         float ymin = rect.min.y;
@@ -50,19 +67,31 @@ public class DrawTemplate : MonoBehaviour
 
         float scale = Mathf.Min(xmax - xmin, ymax - ymin) / 2;
 
-        Vector3[] points = new Vector3[nPoints];
-        for (int i = 0; i < nPoints; i++)
+        int nPointsSeen = 0;// Nombre de points déjà ajoutés grâce aux paths précédents
+
+        for (int ipath = 0; ipath < shapePointsArrays.Length; ipath++)
         {
-            points[i].x = scale * shapePoints[2 * i];
-            points[i].y = scale * shapePoints[2 * i + 1];
+            LineRenderer baseLine = clones[ipath].GetComponent<LineRenderer>();
+            int nPoints = shapePointsArrays[ipath].Length / 2;
+
+            Vector3[] points = new Vector3[nPoints];
+            for (int i = 0; i < nPoints; i++)
+            {
+                points[i].x = scale * shapePointsArrays[ipath][2 * i]; // On passe de coord Shape en WorldGUI (relatif)
+                points[i].y = scale * shapePointsArrays[ipath][2 * i + 1];
+            }
+            baseLine.positionCount = nPoints;
+            baseLine.SetPositions(points);
+            nPointsSeen += nPoints;
         }
-        baseLine.positionCount = nPoints;
-        baseLine.SetPositions(points);
 
     }
 
     public void EraseAll()
     {
-        baseLine.positionCount = 0;
+        foreach (GameObject clone in clones)
+        {
+            Object.Destroy(clone);
+        }
     }
 }

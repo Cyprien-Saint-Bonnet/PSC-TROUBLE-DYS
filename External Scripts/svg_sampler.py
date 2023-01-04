@@ -12,30 +12,38 @@ def get_point_at(path, distance, scale, offset):
 def points_from_path(path, stepsize, scale, offset, include_last=False):
     length = path.length()
     total_distance = 0
-    nspaces = int(length/stepsize) # Les points sont espacés régulièrement et comprennent le premier points (mais pas le dernier)
+    nspaces = int(length/stepsize) # Les points sont espacés régulièrement et comprennent le premier point (mais pas le dernier)
     if include_last:
         nsamples = nspaces + 1
     else:
         nsamples = nspaces
-    for i in range(nsamples):
-        yield get_point_at(
-            path, i/nspaces, scale, offset)
+    if nspaces > 0:
+        for i in range(nsamples):
+            yield get_point_at(
+                path, i/nspaces, scale, offset)
 
-def points_from_doc(doc, nsamples=10, scale=1, offset=0):
+def points_from_doc(doc, nsamples=10, scale=1, offset=0, looped=[]):
     offset = offset[0] + offset[1] * 1j
-    points = []
+    pathpoints = []
+    isLoop = []
     total_length = 0
+    i = 0
     for element in doc.getElementsByTagName("path"):
         for path in parse_path(element.getAttribute("d")):
             total_length += path.length()
+        isLoop.append(bool(i in looped))
+        i += 1
     stepsize = total_length/nsamples
+    i = 0
     for element in doc.getElementsByTagName("path"):
+        points = []
         for path in parse_path(element.getAttribute("d")):
-            #print(path)
             points.extend(points_from_path(
-                path, stepsize, scale, offset))
+                path, stepsize, scale, offset, include_last = not isLoop[i]))
+        pathpoints.append(points.copy())
+        i += 1
 
-    return points,total_length
+    return pathpoints,total_length,isLoop
 
 """
 def points_from_path(path, stepsize, scale, offset, starting_offset=0):
@@ -74,6 +82,8 @@ xmlstring = """<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
 </svg>"""
 
 shapename = input("Nom de la forme (*****.svg): ")
+nsamples = int(input("Nombre de points désirés au total : "))
+looped = [int(v) for v in input("Indices des chemins qui bouclent (ex '1,3') : ").split(",")]
 with open(shapename+".svg","r") as file:
     xmlstring = file.read()
 #print(xmlstring)
@@ -85,15 +95,18 @@ dx = vb[2]-vb[0]
 dy = vb[3]-vb[1]
 
 scale = 2/max(dx,dy)
-points, total_length = points_from_doc(doc, nsamples=100, scale=scale, offset=(-dx/2, -dy/2))
+pathpoints, total_length, isLoop = points_from_doc(doc, nsamples=nsamples, scale=scale, offset=(-dx/2, -dy/2), looped=looped)
 doc.unlink()
 
 
-floatpoints = []
-for pt in points:
-    floatpoints.append(pt[0])
-    floatpoints.append(-pt[1])#L'axe y est dans l'autre sens
+floatpathpoints = []
+for i in range(len(pathpoints)):
+    path = pathpoints[i]
+    floatpathpoints.append([])
+    for pt in path:
+        floatpathpoints[i].append(pt[0])
+        floatpathpoints[i].append(-pt[1])#L'axe y est dans l'autre sens
 with open(f'{shapename}.json', 'w') as outfile:
-    json.dump({"points":floatpoints,"name":shapename,"length":total_length*scale}, outfile)
+    json.dump({"name":shapename,"length":total_length*scale,"points":floatpathpoints,"isLoop":isLoop}, outfile)
 print("Conversion réussie !")
 #print(points,len(points))
